@@ -77,17 +77,37 @@ bootstrap:
     recoveryTarget:
       targetTime: {{ . }}
     {{- end }}
-    {{ with .Values.recovery.database }}
+    {{- with .Values.recovery.database }}
     database: {{ . }}
     {{- end }}
-    {{ with .Values.recovery.owner }}
+    {{- with .Values.recovery.owner }}
     owner: {{ . }}
     {{- end }}
     {{- if eq .Values.recovery.method "backup" }}
     backup:
       name: {{ .Values.recovery.backupName }}
-    {{- else if eq .Values.recovery.method "object_store" }}
+    {{- else if and (eq .Values.recovery.method "object_store") (eq (include "cluster.useBarmanCloudPlugin" .) "false") }}
     source: objectStoreRecoveryCluster
+
+externalClusters:
+  - name: objectStoreRecoveryCluster
+    barmanObjectStore:
+      serverName: {{ .Values.recovery.clusterName }}
+      {{- $d := dict "chartFullname" (include "cluster.fullname" .) "scope" .Values.recovery "secretPrefix" "recovery" -}}
+      {{- include "cluster.barmanObjectStoreConfig" $d | indent 4 }}
+    {{- else if and (eq .Values.recovery.method "object_store") (eq (include "cluster.useBarmanCloudPlugin" .) "true") }}
+    source: origin
+
+externalClusters:
+    - name: origin
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: {{ include "cluster.fullname" $  }}-object-store
+          serverName: {{ .Values.recovery.clusterName |  default (include "cluster.fullname" .) }}
+{{- end }}
+{{- end }}
+{{-  else }}
     {{- end }}
   {{- end }}
 {{- else if eq .Values.mode "replica" }}
