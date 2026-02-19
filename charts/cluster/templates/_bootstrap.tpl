@@ -96,6 +96,24 @@ bootstrap:
     source: objectStoreRecoveryCluster
       {{- end }}
     {{- end }}
+  {{- end }}
+
+{{- if eq .Values.recovery.method "object_store" }}
+externalClusters:
+  {{- if eq (include "cluster.useBarmanCloudPlugin" .) "true" }}
+  - name: origin
+    plugin:
+      name: barman-cloud.cloudnative-pg.io
+      parameters:
+        barmanObjectName: {{ include "cluster.fullname" . }}-object-store
+        serverName: {{ .Values.recovery.clusterName | default (include "cluster.fullname" .) }}
+  {{- else }}
+  - name: objectStoreRecoveryCluster
+    barmanObjectStore:
+      serverName: {{ .Values.recovery.clusterName }}
+      {{- $d := dict "chartFullname" (include "cluster.fullname" .) "scope" .Values.recovery "secretPrefix" "recovery" -}}
+      {{- include "cluster.barmanObjectStoreConfig" $d | indent 6 }}
+  {{- end }}
 {{- end }}
 
 {{- else if eq .Values.mode "replica" }}
@@ -125,6 +143,8 @@ bootstrap:
     secret:
       {{- toYaml . | nindent 6 }}
     {{- end }}
+  {{- else }}
+    {{ fail "Invalid replica bootstrap mode!" }}
   {{- end }}
 
 {{- else }}
@@ -141,44 +161,11 @@ replica:
   {{- with .Values.replica.primary }}
   primary: {{ . }}
   {{- end }}
-  {{- with .Values.replica.promotionToken }}
+  {{ with .Values.replica.promotionToken }}
   promotionToken: {{ . }}
   {{- end }}
   {{- with .Values.replica.minApplyDelay }}
   minApplyDelay: {{ . }}
   {{- end }}
 {{- end }}
-
-{{/* External Clusters Block - Deduplicated and logic-driven */}}
-{{- if eq .Values.mode "recovery" }}
-{{- if eq .Values.recovery.method "pg_basebackup" }}
-externalClusters:
-  {{- include "cluster.externalSourceCluster" (list "pgBaseBackupSource" .Values.recovery.pgBaseBackup.source) | nindent 0 }}
-{{- else if eq .Values.recovery.method "import" }}
-externalClusters:
-  {{- include "cluster.externalSourceCluster" (list "importSource" .Values.recovery.import.source) | nindent 0 }}
-{{- else if eq .Values.recovery.method "object_store" }}
-externalClusters:
-  {{- if eq (include "cluster.useBarmanCloudPlugin" .) "true" }}
-  - name: origin
-    plugin:
-      name: barman-cloud.cloudnative-pg.io
-      parameters:
-        barmanObjectName: {{ include "cluster.fullname" . }}-object-store
-        serverName: {{ .Values.recovery.clusterName | default (include "cluster.fullname" .) }}
-  {{- else }}
-  - name: objectStoreRecoveryCluster
-    barmanObjectStore:
-      serverName: {{ .Values.recovery.clusterName }}
-      {{- $d := dict "chartFullname" (include "cluster.fullname" .) "scope" .Values.recovery "secretPrefix" "recovery" -}}
-      {{- include "cluster.barmanObjectStoreConfig" $d | indent 4 }}
-  {{- end }}
-{{- end }}
-{{- end }}
-
-{{- if eq .Values.mode "replica" }}
-externalClusters:
-  {{- include "cluster.externalSourceCluster" (list "originCluster" .Values.replica.origin) | nindent 0 }}
-{{- end }}
-
 {{- end }}
