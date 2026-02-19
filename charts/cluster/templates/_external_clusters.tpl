@@ -9,11 +9,20 @@ externalClusters:
   - name: importSource
      {{- include "cluster.externalSourceCluster" .Values.recovery.import.source | nindent 4 }}
   {{- else if eq .Values.recovery.method "object_store" }}
+  {{- if eq (include "cluster.useBarmanCloudPlugin" .) "true" }}
+  - name: origin
+    plugin:
+      name: barman-cloud.cloudnative-pg.io
+      parameters:
+        barmanObjectName: {{ include "cluster.fullname" . }}-object-store
+        serverName: {{ .Values.recovery.clusterName | default (include "cluster.fullname" .) }}
+  {{- else }}
   - name: objectStoreRecoveryCluster
     barmanObjectStore:
       serverName: {{ .Values.recovery.clusterName }}
       {{- $d := dict "chartFullname" (include "cluster.fullname" .) "scope" .Values.recovery "secretPrefix" "recovery" -}}
       {{- include "cluster.barmanObjectStoreConfig" $d | nindent 4 }}
+  {{- end }}
   {{- end }}
 {{- else if eq .Values.mode "replica" }}
   - name: originCluster
