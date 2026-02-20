@@ -1,77 +1,157 @@
-# CloudNativePG Helm Charts
+# cnpg
 
-[![Stack Overflow](https://img.shields.io/badge/stackoverflow-cloudnative--pg-blue?logo=stackoverflow&logoColor=%23F48024&link=https%3A%2F%2Fstackoverflow.com%2Fquestions%2Ftagged%2Fcloudnative-pg)][stackoverflow]
-[![GitHub License](https://img.shields.io/github/license/cloudnative-pg/charts)][license]
+This chart is an amalgamation of these repos:
+ - https://github.com/cloudnative-pg/charts (base)
+ - https://github.com/pha91/charts/tree/feat/cluster-plugin-support 
+ - https://github.com/pha91/charts/tree/feat/additional-env
 
+This chart should be replaced by the base cloudnative-pg/charts repo, once 
+[this PR is approved and merged](https://github.com/cloudnative-pg/charts/pull/680) which hopefully
+won't take too long.
 
-[![GitHub Release](https://img.shields.io/github/v/release/cloudnative-pg/charts?filter=cloudnative-pg-*)](https://github.com/cloudnative-pg/charts/tree/main/charts/cloudnative-pg)
-[![GitHub Release](https://img.shields.io/github/v/release/cloudnative-pg/charts?filter=cluster-*)](https://github.com/cloudnative-pg/charts/tree/main/charts/cluster)
+For most options refer to the [docs here](https://github.com/cloudnative-pg/charts/blob/main/README.md)
 
+## How to use this
 
-## Operator chart
+Merging @pha91's repos with this means we can now use the ObjectStores to define buckets to back-up
+to and restore from. 
 
-Helm chart to install the
-[CloudNativePG operator](https://cloudnative-pg.io), originally created and sponsored by
-[EDB](https://www.enterprisedb.com/) to manage PostgreSQL workloads on any supported Kubernetes cluster
-running in private, public, or hybrid cloud environments.
+Here's how an example config for the backup cluster could look:
+```yaml
+type: postgis 
+mode: standalone
 
-**NOTE**: supports only the latest point release of the CloudNativePG operator.
-```console
-helm repo add cnpg https://cloudnative-pg.github.io/charts
-helm upgrade --install cnpg \
-  --namespace cnpg-system \
-  --create-namespace \
-  cnpg/cloudnative-pg
+cluster:
+  useBarmanCloudPlugin: true
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: my-cluster-object-store
+
+  instances: 2
+  env:
+    - name: AWS_REQUEST_CHECKSUM_CALCULATION
+      value: when_required
+    - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+      value: when_required
+  affinity:
+    topologyKey: kubernetes.io/hostname
+
+  monitoring:
+    enabled: true
+
+  roles:
+    - name: app
+      ensure: present
+      comment: DB User for testing
+      login: true
+      superuser: false
+      passwordSecret:
+        name: app-user-credentials
+
+backups:
+  enabled: true
+  endpointURL: "https://obs.eu-de.otc.t-systems.com" # If this is left out it hits AWS instead
+  provider: s3
+  secret:
+    name: "my-cluster-backup-s3-creds"
+  s3:
+    region: "eu-de"
+    bucket: "${vault:{{.Values.projectValues.context}}/data/{{.Values.projectValues.stage}}/storage/cloudnative_pg_bucket#bucket_name}"
+    path: "/recovery/"
+    accessKey: "${vault:{{.Values.projectValues.context}}/data/{{.Values.projectValues.stage}}/storage/cloudnative_pg_bucket#access_key}"
+    secretKey: "${vault:{{.Values.projectValues.context}}/data/{{.Values.projectValues.stage}}/storage/cloudnative_pg_bucket#secret_key}"
+
+  scheduledBackups:
+    - name: test-backup
+      schedule: "0 */5 * * * *"
+      backupOwnerReference: self      
+  retentionPolicy: "1d"
+
+databases:
+  - name: app             
+    ensure: present       
+    owner: app            
+    template: template1   
+    encoding: UTF8        
+    schemas: []           
+    extensions:           
+      - name: postgis
+      - name: postgis_topology
+      - name: pg_prewarm
+      - name: lo
+      - name: fuzzystrmatch
+
 ```
 
-#### Single namespace installation
+The recovery cluster could look like this:
+```yaml
+type: postgis
+mode: recovery
 
-It is possible to limit the operator's capabilities to solely the namespace in
-which it has been installed. With this restriction, the cluster-level
-permissions required by the operator will be substantially reduced, and
-the security profile of the installation will be enhanced.
+recovery:
+  method: object_store
+  endpointURL: "https://obs.eu-de.otc.t-systems.com"    # Hits AWS if omitted
+  provider: s3
+  clusterName: "my-cluster"                             # Must match the backup cluster's name
+  secret:
+    name: "my-recovery-cluster-backup-s3-creds"
+  s3:
+    region: "eu-de"
+    bucket: "${vault:{{ .Values.projectValues.context }}/data/{{ .Values.projectValues.stage }}/storage/cloudnative_pg_bucket#bucket_name}"
+    path: "/recovery/"
+    accessKey: "${vault:{{ .Values.projectValues.context }}/data/{{ .Values.projectValues.stage }}/storage/cloudnative_pg_bucket#access_key}"
+    secretKey: "${vault:{{ .Values.projectValues.context }}/data/{{ .Values.projectValues.stage }}/storage/cloudnative_pg_bucket#secret_key}"
 
-You can install the operator in single-namespace mode by setting the
-`config.clusterWide` flag to false, as in the following example:
+cluster:
+  useBarmanCloudPlugin: true
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: my-recovery-cluster-object-store
 
-```console
-helm upgrade --install cnpg \
-  --namespace cnpg-system \
-  --create-namespace \
-  --set config.clusterWide=false \
-  cnpg/cloudnative-pg
+  instances: 2
+  env:
+    - name: AWS_REQUEST_CHECKSUM_CALCULATION
+      value: when_required
+    - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+      value: when_required
+  affinity:
+    topologyKey: kubernetes.io/hostname
+
+  monitoring:
+    enabled: true
+
+  roles:
+    - name: app
+      ensure: present
+      comment: DB User for testing
+      login: true
+      superuser: false
+      passwordSecret:
+        name: app-user-credentials
+
+backups:
+  enabled: false              # Could also be enabled like the example above
+databases:
+  - name: app                  
+    ensure: present            
+    owner: app                 
+    template: template1        
+    encoding: UTF8             
+    schemas: []                
+    extensions:                
+      - name: postgis
+      - name: postgis_topology
+      - name: pg_prewarm
+      - name: lo
+      - name: fuzzystrmatch
+
 ```
 
-**IMPORTANT**: the single-namespace installation mode can't coexist
-with the cluster-wide operator. Otherwise there would be collisions when
-managing the resources in the namespace watched by the single-namespace
-operator.
-It is up to the user to ensure there is no collision between operators.
-
-Refer to the [Operator Chart documentation](charts/cloudnative-pg/README.md) for advanced configuration and monitoring.
-
-## Cluster chart
-
-Helm chart to install a CloudNativePG database cluster.
-
-```console
-helm repo add cnpg https://cloudnative-pg.github.io/charts
-helm upgrade --install database \
-  --namespace database \
-  --create-namespace \
-  cnpg/cluster
-```
-
-Refer to the [Cluster Chart documentation](charts/cluster/README.md) for advanced configuration options.
-
-## Contributing
-
-Please read the [code of conduct](CODE-OF-CONDUCT.md) and the
-[guidelines](CONTRIBUTING.md) to contribute to the project.
-
-## Copyright
-
-Helm charts for CloudNativePG are distributed under [Apache License 2.0](LICENSE).
-
-[stackoverflow]: https://stackoverflow.com/questions/tagged/cloudnative-pg
-[license]: https://github.com/cloudnative-pg/charts?tab=Apache-2.0-1-ov-file
+For a full reference refer to the [comments in the values.yaml](https://github.com/Ninja243/cnpg-charts/blob/main/charts/cluster/values.yaml)
+and for more examples, refer to [this folder from @pha91's repo](https://github.com/Ninja243/cnpg-charts/tree/main/charts/cluster/test/postgresql-cluster-configuration).
