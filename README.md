@@ -157,3 +157,15 @@ databases:
 
 For a full reference refer to the [comments in the values.yaml](https://github.com/Ninja243/cnpg-charts/blob/main/charts/cluster/values.yaml)
 and for more examples, refer to [this folder from @pha91's repo](https://github.com/Ninja243/cnpg-charts/tree/main/charts/cluster/test/postgresql-cluster-configuration).
+
+## Troubleshooting
+
+Don't see any new base backups in S3? → Delete the `ScheduledBackup` and let Argo re-create it. 
+Don't see any new WALs being written to S3? → Make sure the directory you're writing to is empty.
+Don't know what to watch on YouTube next? → [Click here](https://www.youtube.com/watch?v=3BFTio5296w.
+
+## Contributing
+
+Don't. 
+
+Contribute to the [base chart](https://github.com/cloudnative-pg/charts) instead.
