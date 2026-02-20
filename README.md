@@ -61,6 +61,8 @@ backups:
     region: "eu-de"
     bucket: "${vault:{{.Values.projectValues.context}}/data/{{.Values.projectValues.stage}}/storage/cloudnative_pg_bucket#bucket_name}"
     path: "/recovery/"
+    # These still need to be set, even though these will be copied into the secret above (my-cluster-backup-s3-creds)
+    # lest a templating error be thrown.
     accessKey: "${vault:{{.Values.projectValues.context}}/data/{{.Values.projectValues.stage}}/storage/cloudnative_pg_bucket#access_key}"
     secretKey: "${vault:{{.Values.projectValues.context}}/data/{{.Values.projectValues.stage}}/storage/cloudnative_pg_bucket#secret_key}"
 
